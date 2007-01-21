@@ -1,10 +1,12 @@
 <TMPL_INCLUDE NAME="header.tmpl">
 <h2><MT_TRANS phrase="The Movable Type Plugin Mindmap"> <MT_TRANS phrase="version"> <TMPL_VAR NAME=VERSION></h2>
-	<div class="message"><TMPL_VAR NAME=TEXT> <MT_TRANS phrase="blog"> <TMPL_VAR NAME=BLOG_ID> </div>
-	
+	<div class="message"><TMPL_VAR NAME=BLOG_NAME> </div>
+
 	<img src="/ctg_mindmap.png"/>
 	<p>
-	<input value=" Rebuild " type="button" />
+	<input value=" Rebuild " type="button"
+		onclick="window.location = '<TMPL_VAR NAME=SCRIPT_URL>;__mode=rebuild'"/>
+	
 	<input value="&laquo; Return" onclick="window.location = '<TMPL_VAR NAME=MT_URL>?__mode=list_plugins'" type="button" />
 	</p>
 
