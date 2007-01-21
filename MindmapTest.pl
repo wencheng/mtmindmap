@@ -2,11 +2,49 @@ use strict;
 use GD;
 use GD::Polyline;
 use Mindmap;
+use Data::Dumper;
 
 # local unit test for Mindmap.pm
 
-test_get_categories();
-#test_create_image();
+my $ctgs = [
+	{ id => 8, label =>'Header', level => 1 },
+	{ id => 15, label => '読書感想', children => [
+		{ id => 12, label => 'ローマ人の物語' }
+	] },
+	{ id => 14, label => '言語', children => [
+		{ id => 11, label => 'zh-cn', children => [
+			{ id => 10, label => '簡体', children => [
+				{ id => 20, label => '1' },
+				{ id => 20, label => '2' },
+				{ id => 20, label => '3' },
+				{ id => 20, label => '4' },
+				{ id => 20, label => '5' },
+				{ id => 20, label => '6' },
+				{ id => 20, label => '7' },
+				{ id => 20, label => '8' },
+				{ id => 20, label => '9' },
+				{ id => 20, label => '10' },
+				{ id => 20, label => '11' },
+			] },
+			{ id => 10, label => '繁体' },
+		] },
+		{ id => 13, label => 'en' },
+		{ id => 9,  label => 'ja'},
+		{ id => 9,  label => 'es' },
+	] },
+	{ id => 16, label => 'Long English' },
+];
+	
+#test_get_categories();
+#test_get_deepest_level();
+test_create_image();
+
+sub test_create_image {
+	my $m = new Mindmap();
+	$m->ctgs( $ctgs );
+	$m->maxlvl( 4 );
+	$m->_create_image();
+}
 
 sub test_get_categories {
 	my @cats = (
@@ -37,31 +75,12 @@ sub test_get_categories {
 		push( @ctgs, $i ) if $i->{parent} == 0;
 	}
 	
-	use Data::Dumper;
-	print Dumper(\%children);
 	print STDERR Dumper(\@ctgs);
 }
 
-sub test_create_image {
-my $ctgs = [
-	{ id => 8, label =>'Header', level => 1 },
-	{ id => 15, label => '読書感想', children => [
-		{ id => 12, label => 'ローマ人の物語', parent => 15 },
-	] },
-	{ id => 14, label => '言語', children => [
-		{ id => 11, label => 'zh-cn', children => [
-			{ id => 10, label => '簡体' },
-			{ id => 10, label => '繁体' },
-		] },
-		{ id => 13, label => 'en' },
-		{ id => 9,  label => 'ja'},
-	] },
-	{ id => 16, label => 'Long English' },
-];
-
-my $m = new Mindmap();
-$m->maxlvl( 3 );
-$m->_create_image($ctgs);
+sub test_get_deepest_level {
+	print Dumper( $ctgs );
+	print Mindmap::_get_deepest_level( $ctgs, 1 );
 }
 
 1;
