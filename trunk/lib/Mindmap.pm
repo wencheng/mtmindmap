@@ -1,12 +1,9 @@
 package Mindmap;
 use strict;
 use base 'MT::App';
+use POSIX;
 use GD;
 use GD::Polyline;
-
-sub pow { abs($_[0]) * $_[0] };
-sub floor { $_[0]*10%10 ? (($_[0]*10+10)-($_[0]*10%10))/10 : $_[0] };
-sub max { $_[0]>$_[1] ? $_[0] : $_[1] }
 
 use constant PI => 4 * atan2( 1, 1 );
 use constant DEBUG => 0;
@@ -28,6 +25,12 @@ sub init {
 	bless $self, 'Mindmap';
 
 	return $self;
+}
+
+# passthru for L10N
+sub translate_templatized {
+    my $app = shift;
+    $app->plugin->translate_templatized(@_);
 }
 
 # FOR LOCAL DEBUG ONLY
@@ -93,7 +96,7 @@ sub view {
 	
 	my $blog   = MT->instance->blog;
 	my $config = MT::Plugin::Mindmap->instance->get_config_hash('blog:'.$blog->id);
-	
+
 	my $param  = {};
 	$param->{version} = $MT::Plugin::Mindmap::VERSION;
 	$param->{blog_name} = $blog->name;
@@ -179,52 +182,64 @@ sub _get_deepest_level {
 	return $max;
 }
 
-sub _prepare_image_attrs {
+sub _calculate_ylen {
 	my $self = shift;
-
-	my @total_leaf = ();
-	for ( 0..$#{$self->ctgs} ) {
-		$total_leaf[$_] = ( @{$self->ctgs}[$_]->{children} ) ?
-			_get_total_leaf( @{$self->ctgs}[$_]->{children} ) : 0;
-	}
 
 	my $sum_l = 0;
 	my $sum_r = 0;
 	for ( 0..floor(($#{$self->ctgs}+1)/2)-1 ) {
-		$sum_l += $total_leaf[$_];
+		$sum_l += ${$self->ctgs}[$_]->{height};
 	}
 	for ( floor(($#{$self->ctgs}+1)/2)..$#{$self->ctgs} ) {
-		$sum_r += $total_leaf[$_];
+		$sum_r += ${$self->ctgs}[$_]->{height};
 	}
 
-	print $sum_l, $sum_r;
-	$self->ylen( max( $sum_l, $sum_r ) * 60 );
+	print STDERR $sum_l, $sum_r, "\n";
+	
+	use List::Util qw[min max];
+	$self->ylen( max( $sum_l, $sum_r )*1.5 );
 }
 
 sub _prepare_image_attr {
 	my $node = shift;
+	my $parent = shift;
 
-	return 1 unless ( $node->{childern} );
-	
-	my $leaf_sum = 0;
-	my $max_leaf = 0;
-	for ( @{ $node->{children} } ) {
-		$leaf_sum += _prepare_image_attr( $_  ); 
+	# for all nodes and leafs
+	$node->{level} = $parent ? $parent->{level}+1 : 1; 
+	$node->{parent} = $parent;
+
+	# for leaf
+	if ( not $node->{children} ) {
+		$node->{height} = 60;
+		return 0;
 	}
 
-	return $leaf_sum;
+	# for node who has leaf(s)
+	my $max_leafs = 0;
+	for my $i ( 0..$#{ $node->{children} } ) {
+		$max_leafs += _prepare_image_attr( ${ $node->{children} }[$i], $node );
+	}
+	
+	if ( $max_leafs ) {
+		$node->{height} += $_->{height} for ( @{ $node->{children} } );
+	} else {
+		# all children are leafs
+		$node->{height} += $_->{height} for ( @{ $node->{children} } );
+	}
+		
+	$node->{max_leafs} = $max_leafs ? $max_leafs : $#{ $node->{children} };
 }
 
 sub _create_image {
 	my $self = shift;
-	my $blog = MT->instance->blog;
 
 	return if ( $self->ctgs == undef );
 
+	_prepare_image_attr( $_ ) for ( @{$self->ctgs} );
+
 	# arrange picture size
 	$self->xlen( $self->maxlvl * 90 * 2 + 120 );
-	$self->ylen( 480 );
-	#$self->_calculate_ylen();
+	$self->_calculate_ylen();
 
 	my $img   = new GD::Image( $self->xlen, $self->ylen );
 	my $color = Mindmap->_init_colors($img);
@@ -234,12 +249,6 @@ sub _create_image {
 
 	# border
 	$img->rectangle( 0, 0, $self->xlen - 1, $self->ylen - 1, $color->{black} );
-
-	# blog name
-	my $cfg = $self->plugin->get_config_hash('blog:'.$blog->id);
-	if ( $cfg->{show_blog_name} ) {
-		$img->stringFT(	$color->{black}, font, 10, 0, 10, 11, $blog->name );
-	}
 
 	# version info
 	$img->stringFT(	$color->{black}, font, 10, 0, 10, 21,
@@ -264,6 +273,12 @@ sub _create_image {
 		$img->stringFT(	$color->{black}, font, 10, 0, 10, 31, "あいうえお" );
 		$self->_save_image( $img, '.' );
 	} else {
+		# blog name
+		my $cfg = $self->plugin->get_config_hash('blog:'.MT->instance->blog->id);
+		if ( $cfg->{show_blog_name} ) {
+			$img->stringFT(	$color->{black}, font, 10, 0, 10, 11, MT->instance->blog->name );
+		}
+
 		$self->_save_image( $img, MT->instance->blog->site_path );
 	}
 }
@@ -290,14 +305,7 @@ sub _draw_top_branch {
 
 		# draw branch line
 		# $i%4+1: skip color white
-		$self->_draw_top_branch_line( $img, $sx, $sy, $ex, $ey, $i%4+1 );
-
-		# draw branch label
-		my $text = @$ctgs[$i]->{label};
-		my $fs   = 10;
-		$img->stringFT( $c->{black}, font, $fs, 0,
-			$ex > $self->xcenter() ? $ex - ($fs+1) * length($text)/2 - 3 : $ex + 3,
-			$ey - 3, $text );
+		$self->_draw_branch_line( $img, $sx, $sy, $ex, $ey, $i%4+1 );
 
 		# draw children
 		my $children_color = [0];
@@ -306,6 +314,13 @@ sub _draw_top_branch {
 		}
 		$self->_draw_children( $img, $c, $children_color, @$ctgs[$i]->{children}, $ex, $ey>$self->ycenter?$ey+3:$ey-3 )
 		  if @$ctgs[$i]->{children};
+
+		# draw branch label
+		my $text = @$ctgs[$i]->{label};
+		my $fs   = 10;
+		$img->stringFT( $c->{black}, font, $fs, 0,
+			$ex > $self->xcenter() ? $ex - ($fs+1) * length($text)/2 - 3 : $ex + 3,
+			$ey - 3, $text );
 	}
 }
 
@@ -318,21 +333,19 @@ sub _draw_children {
 	my $sx   = shift;
 	my $sy   = shift;
 
+	my $ey = $sy - @$ctgs[0]->{parent}->{height}/2;
 	for my $i ( 0 .. $#$ctgs ) {
 		my $ex = $sx > $self->xcenter() ? $sx + 90 : $sx - 90;
-		my $ey = $sy + 50 * ( $i - $#$ctgs / 2 );
+		if ( $i ) {
+			$ey += ( @$ctgs[$i-1]->{height} + @$ctgs[$i]->{height} ) /2;
+		} else {
+			$ey += ( @$ctgs[$i]->{height} ) /2;
+		}
 		$ey = $sy - 15 if ( $#$ctgs == 0 );
 
 		# draw branch line
 		# $i%3+1: skip color white and color of parent
-		$self->_draw_top_branch_line( $img, $sx, $sy, $ex, $ey, @$c[$i%3+1] );
-
-		# draw branch label
-		my $text = @$ctgs[$i]->{label};
-		my $fs   = 10;
-		$img->stringFT( $full_color->{black}, font, $fs, 0,
-			$ex > $self->xcenter() ? $ex - ($fs+1) * length($text) / 2 - 3 : $ex + 3,
-			$ey - 3, $text );
+		$self->_draw_branch_line( $img, $sx, $sy, $ex, $ey, @$c[$i%3+1] );
 
 		# draw children
 		my $children_color = [0];
@@ -341,10 +354,17 @@ sub _draw_children {
 		}
 		$self->_draw_children( $img, $full_color, $children_color, @$ctgs[$i]->{children}, $ex, $ey )
 		  if @$ctgs[$i]->{children};
+
+		# draw branch label
+		my $text = @$ctgs[$i]->{label};
+		my $fs   = 10;
+		$img->stringFT( $full_color->{black}, font, $fs, 0,
+			$ex > $self->xcenter() ? $ex - ($fs+1) * length($text) / 2 - 3 : $ex + 3,
+			$ey - 3, $text );
 	}
 }
 
-sub _draw_top_branch_line {
+sub _draw_branch_line {
 	my $self = shift;
 	my $img   = shift;
 	my $sx    = shift;
@@ -357,10 +377,13 @@ sub _draw_top_branch_line {
 		my $poly = new GD::Polyline;
 		$poly->addPt( $sx + $i, $sy );
 		
-		my $x =	($ey-$sy)*2/10;
+		my $x = ($ey-$sy)/5;
 		$x = -$x if ( ($ex>$sx&&$ey<$sy) || ($ex<$sx&&$ey>$sy) );
 		$x += $sx+$i;
-		my $y = $ey>$sy ? $ey-10 : $ey+10; 
+		#my $y = $ey>$sy ? $ey-10 : $ey+10; 
+
+		my $y = $ey;
+		
 		$img->line( $x-2, $y, $x+2, $y, $color );
 		$img->line( $x, $y-2, $x, $y+2, $color );
 		$poly->addPt( $x, $y );
