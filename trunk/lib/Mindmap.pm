@@ -2,11 +2,16 @@ package Mindmap;
 use strict;
 use base 'MT::App';
 use POSIX;
+use List::Util qw(first max maxstr min minstr reduce shuffle sum);
+use MT::I18N::ja;
 use GD;
 use GD::Polyline;
 
 use constant PI => 4 * atan2( 1, 1 );
+use constant ENTRY_HEIGHT => 20;
+use constant BLACK => 5;
 use constant DEBUG => 0;
+#use constant DEBUG => 1;
 
 sub init {
 	my $self = shift;
@@ -20,8 +25,10 @@ sub init {
 
 	$self->{_xlen} = undef;
 	$self->{_ylen} = undef;
+	$self->{_xcenter} = undef,
+	$self->{_ycenter} = undef,
 	$self->{_ctgs} = undef;
-	$self->{_maxlvl} = undef;
+	$self->{_entries} = [];
 	bless $self, 'Mindmap';
 
 	return $self;
@@ -33,18 +40,19 @@ sub translate_templatized {
     $app->plugin->translate_templatized(@_);
 }
 
-# FOR LOCAL DEBUG ONLY
 sub new {
 	if ( DEBUG ) {
 		my $class = shift;
 		my $self = {
 				_xlen   => undef,
 				_ylen   => undef,
+				_xcenter => undef,
+				_ycenter => undef,
 				_ctgs => undef,
-				_maxlvl => undef,
+				_entries => [],
 			};
 		bless $self, $class;
-	
+
 		$self;
 	} else {
 		shift->SUPER::new(@_) or return;
@@ -55,37 +63,22 @@ sub font {
 	if ( DEBUG ) {
 		'/Applications/Microsoft Office 2004/Office/Fonts/MS PGothic.ttf';
 	} else {
-		'/usr/share/fonts/truetype/kochi/kochi-mincho.ttf';
+		my $cfg = MT::Plugin::Mindmap->instance->get_config_hash('blog:'.MT->instance->blog->id);
+		return $cfg->{font};
 	}
 }
 
-sub ctgs {
-	my ( $self, $var ) = @_;
-	$self->{_ctgs} = $var if defined($var);
-	return $self->{_ctgs};
+sub _getset {
+    my $p = (caller(1))[3]; $p =~ s/.*:://;
+    @_ > 1 ? $_[0]->{"_$p"} = $_[1] : $_[0]->{"_$p"};
 }
 
-sub maxlvl {
-	my ( $self, $var ) = @_;
-	$self->{_maxlvl} = $var if defined($var);
-	return $self->{_maxlvl};
-}
-
-sub xlen {
-	my ( $self, $var ) = @_;
-	$self->{_xlen} = $var if defined($var);
-	return $self->{_xlen};
-}
-
-sub ylen {
-	my ( $self, $var ) = @_;
-	$self->{_ylen} = $var if defined($var);
-	return $self->{_ylen};
-}
-
-sub xcenter { shift->{_xlen} / 2; }
-
-sub ycenter { shift->{_ylen} / 2; }
+sub ctgs { &_getset }
+sub entries { &_getset }
+sub xlen { &_getset }
+sub ylen { &_getset }
+sub xcenter { &_getset }
+sub ycenter { &_getset }
 
 sub plugin {
 	MT::Plugin::Mindmap->instance;
@@ -100,14 +93,10 @@ sub view {
 	my $param  = {};
 	$param->{version} = $MT::Plugin::Mindmap::VERSION;
 	$param->{blog_name} = $blog->name;
+	$param->{entries} = $self->entries;
 
-	if ( DEBUG ) {
-		use Data::Dumper;
-		$param->{ctgs_dump} = Dumper( $self->_get_categories() );
-
-		# rebuild everytime
-		$self->build;
-	}
+	# rebuild everytime
+	$self->build;
 
 	# Set breadcrumb
 	$self->_add_breadcrumb();
@@ -117,7 +106,7 @@ sub view {
 
 sub rebuild {
 	my $self = shift;
-	$self->build();
+	#$self->build();
 	$self->view();
 }
 
@@ -125,15 +114,44 @@ sub build {
 	my $self = shift;
 
 	# fetch categories
-	$self->_get_categories();
+	$self->_load_categories();
+	
+	# fetch entries
+	my $cfg = $self->plugin->get_config_hash('blog:'.MT->instance->blog->id);
+	$self->_load_entries() if $cfg->{show_entry};
 
 	# generate mindmap image
 	$self->_create_image();
 }
 
-sub _get_categories {
+# fetch all entries of the category specified
+sub _load_entries {
 	my $self = shift;
-	my $parent = shift || 0;
+	my $ctgs = shift || $self->ctgs;
+
+	my @entries = ();
+	for my $ctg (@$ctgs) {
+		$ctg->{entries} = [
+			map { {
+				id        => $_->id,
+				title     => $_->title,
+				permalink => $_->permalink,
+				status    => $_->status,
+			}, } MT::Entry->load( {
+					blog_id => MT->instance->blog->id,
+#					category_id => $ctg->{id},
+				}, {
+					'join' => [ 'MT::Placement', 'entry_id', {category_id => $ctg->{id}} ] 
+				}
+			)
+		];
+
+		$self->_load_entries( $ctg->{children} ) if $ctg->{children};
+	}
+}
+
+sub _load_categories {
+	my $self = shift;
 
 	# fetch all category
 	my @cats = (
@@ -164,40 +182,7 @@ sub _get_categories {
 
 	$self->ctgs( \@ctgs );
 
-	$self->maxlvl( _get_deepest_level( \@ctgs, 1 ) );
-
 	return \@ctgs;
-}
-
-sub _get_deepest_level {
-	my $ctgs = shift;
-	my $level = shift;
-	
-	my $max = $level;
-	foreach my $i (@$ctgs) {
-		$i->{level} = $level;
-		$max = _get_deepest_level( $i->{children}, $level+1 ) if $i->{children};
-	}
-
-	return $max;
-}
-
-sub _calculate_ylen {
-	my $self = shift;
-
-	my $sum_l = 0;
-	my $sum_r = 0;
-	for ( 0..floor(($#{$self->ctgs}+1)/2)-1 ) {
-		$sum_l += ${$self->ctgs}[$_]->{height};
-	}
-	for ( floor(($#{$self->ctgs}+1)/2)..$#{$self->ctgs} ) {
-		$sum_r += ${$self->ctgs}[$_]->{height};
-	}
-
-	print STDERR $sum_l, $sum_r, "\n";
-	
-	use List::Util qw[min max];
-	$self->ylen( max( $sum_l, $sum_r )*1.5 );
 }
 
 sub _prepare_image_attr {
@@ -210,7 +195,7 @@ sub _prepare_image_attr {
 
 	# for leaf
 	if ( not $node->{children} ) {
-		$node->{height} = 60;
+		$node->{height} = 60 + ($#{ $node->{entries} }+1)*(ENTRY_HEIGHT+4);
 		return 0;
 	}
 
@@ -219,15 +204,174 @@ sub _prepare_image_attr {
 	for my $i ( 0..$#{ $node->{children} } ) {
 		$max_leafs += _prepare_image_attr( ${ $node->{children} }[$i], $node );
 	}
-	
+
 	if ( $max_leafs ) {
 		$node->{height} += $_->{height} for ( @{ $node->{children} } );
 	} else {
 		# all children are leafs
 		$node->{height} += $_->{height} for ( @{ $node->{children} } );
 	}
-		
+	$node->{height} += ($#{ $node->{entries} }+1)*ENTRY_HEIGHT;
+
 	$node->{max_leafs} = $max_leafs ? $max_leafs : $#{ $node->{children} };
+}
+
+sub _preload {
+	my $self = shift;
+
+	my $ctgs = $self->ctgs;
+
+	# angle on the center circle
+	my $agl = 2 * PI() / ( $#$ctgs + 1 );
+
+	# customized rotate
+	my $rotate = 2 * PI() / 2;
+	$rotate += $agl / 2;
+
+	my $half = ceil(($#$ctgs+1)/2);
+
+	# left half
+	my $ey = 0;
+	for my $i ( 0 .. $half-1 ) {
+		# branch line
+		my $sx = sin( $agl * $i + $rotate ) * 50 + $self->xcenter;
+		my $sy = cos( $agl * $i + $rotate ) * 50 + $self->ycenter;
+		
+		if ( $i ) {
+			$ey += ( @$ctgs[$i-1]->{height} + @$ctgs[$i]->{height} )/2;
+			$ey = $sy+1 if $ey < $sy;
+		} else {
+			$ey = $sy - @$ctgs[$i]->{height}/2;
+		}
+	
+		my $ex = $sx - 90;
+		my $x = abs($ey-$sy)/5;
+ 		$ex = $sx-$x-3 if $x > 90;
+
+		@$ctgs[$i]->{sx} = $sx;
+		@$ctgs[$i]->{sy} = $sy;
+		@$ctgs[$i]->{ex} = $ex;
+		@$ctgs[$i]->{ey} = $ey;
+		
+		# $i%4+1: skip color white
+		@{$ctgs}[$i]->{color} = $i%4+1;
+
+		# preload children
+		$self->_preload_children( @$ctgs[$i]->{children}, @$ctgs[$i] ) if @$ctgs[$i]->{children};
+	}
+	
+	# right half
+	$ey = 0;
+	for my $i ( -$#$ctgs .. -$half ) {
+		$i = -$i;
+		# branch line
+		my $sx = sin( $agl * $i + $rotate ) * 50 + $self->xcenter;
+		my $sy = cos( $agl * $i + $rotate ) * 50 + $self->ycenter;
+
+		if ( $i != $#$ctgs ) {
+			$ey += ( @$ctgs[$i+1]->{height} + @$ctgs[$i]->{height} )/2;
+			$ey = $sy+1 if $ey < $sy
+		} else {
+			$ey = $sy - @$ctgs[$i]->{height}/2;
+		}
+
+		my $ex = $sx + 90;
+		my $x = abs($ey-$sy)/5;
+ 		$ex = $sx+$x-3 if $x > 90;
+
+		@$ctgs[$i]->{sx} = $sx;
+		@$ctgs[$i]->{sy} = $sy;
+		@$ctgs[$i]->{ex} = $ex;
+		@$ctgs[$i]->{ey} = $ey;
+
+		# $i%4+1: skip color white
+		@{$ctgs}[$i]->{color} = $i%4+1;
+	
+		# preload children
+		$self->_preload_children( @$ctgs[$i]->{children}, @$ctgs[$i] ) if @$ctgs[$i]->{children};
+	}
+
+}
+
+sub _preload_children {
+	my $self = shift;
+	my $ctgs = shift; 
+	my $parent = shift;
+
+	# not use same color with parent
+	my @color = ();
+	for (1..4) {
+		push( @color, $_ ) if $_ != $parent->{color};
+	}
+
+	my $ey = $parent->{ey} - $parent->{height}/2;
+	for my $i ( 0 .. $#$ctgs ) {
+		my $sx = $parent->{ex};
+		my $sy = $parent->{ey}>$self->ycenter?$parent->{ey}+3:$parent->{ey}-3;
+		my $ex = $sx > $self->xcenter() ? $sx + 90 : $sx - 90;
+		if ( $i ) {
+			$ey += ( @$ctgs[$i-1]->{height} + @$ctgs[$i]->{height}
+				- ($#{ @$ctgs[$i]->{entries} }+1)*20 ) /2;
+		} else {
+			$ey += ( @$ctgs[$i]->{height} ) /2;
+		}
+		$ey = $sy - 15 if ( $#$ctgs == 0 );
+
+		(@$ctgs[$i]->{sx},@$ctgs[$i]->{sy},@$ctgs[$i]->{ex},@$ctgs[$i]->{ey})
+			= ($sx, $sy, $ex, $ey);
+
+		# not use the same color with sibling's last child
+		my $sib_child = @{ $parent->{children} }[$i-1]->{children};
+		shift(@color) if $i && $sib_child && $color[$i%3] == @$sib_child[$#$sib_child]->{color};
+		
+		@$ctgs[$i]->{color} = $color[$i%3];
+
+		# preload children
+		$self->_preload_children( @$ctgs[$i]->{children}, @$ctgs[$i] ) if @$ctgs[$i]->{children};
+	}
+
+}
+
+sub _get_maxmin {
+	my $self = shift;
+	my $ctgs = shift;
+
+	my ( $max_w, $min_h, $max_h ) = (0,0,0);
+	foreach my $i (@$ctgs) {
+		my ( $w, $h1, $h2 );
+		if ( $i->{children} ) {
+			( $w, $h1, $h2 ) = $self->_get_maxmin( $i->{children} );
+		} else {
+			$w = max( abs($i->{sx}), abs($i->{ex}) );
+			$h1 = min( $i->{sy}, $i->{ey} );
+			$h2 = max( $i->{sy}, $i->{ey}+($#{$i->{entries}}+1)*(ENTRY_HEIGHT+4) );
+		}
+
+		$max_w = max( $max_w, $w );
+		$min_h = min( $min_h, $h1 );
+		$max_h = max( $max_h, $h2 );
+	}
+
+	return ( $max_w, $min_h, $max_h );
+}
+
+sub _calculate_image_size {
+	my $self = shift;
+
+	my $half = ceil( ($#{$self->ctgs}+1) / 2 );
+	my @left = ();
+	push( @left, ${$self->ctgs}[$_] ) for ( 0..$half-1 );
+	my ( $lx, $min_ly, $max_ly ) = $self->_get_maxmin( \@left );
+
+	my @right = ();
+	push( @right, ${$self->ctgs}[$_] ) for ( $half..$#{$self->ctgs} );
+	my ( $rx, $min_ry, $max_ry ) = $self->_get_maxmin( \@right );
+
+	my $edge = 100;
+	$self->xlen( $lx + $rx + $edge );
+	$self->ylen( max(abs($min_ly),abs($min_ry)) + max($max_ly,$max_ry) + $edge );
+	$self->xcenter( $lx + $edge/2 );
+	$self->ycenter( max( abs($min_ly), abs($min_ry) ) + $edge/2 );
 }
 
 sub _create_image {
@@ -237,9 +381,10 @@ sub _create_image {
 
 	_prepare_image_attr( $_ ) for ( @{$self->ctgs} );
 
-	# arrange picture size
-	$self->xlen( $self->maxlvl * 90 * 2 + 120 );
-	$self->_calculate_ylen();
+	$self->_preload();
+
+	# adjust picture size
+	$self->_calculate_image_size();
 
 	my $img   = new GD::Image( $self->xlen, $self->ylen );
 	my $color = Mindmap->_init_colors($img);
@@ -250,17 +395,12 @@ sub _create_image {
 	# border
 	$img->rectangle( 0, 0, $self->xlen - 1, $self->ylen - 1, $color->{black} );
 
-	# version info
-	$img->stringFT(	$color->{black}, font, 10, 0, 10, 21,
-		'by MovebleType Mindmap ' . $MT::Plugin::Mindmap::VERSION );
-
-	$self->_draw_top_branch( $img, $color );
+	# draw contents
+	$self->_draw_branch( $img, $self->ctgs ); 
 
 	# center
 	$img->arc( $self->xcenter, $self->ycenter, 100 + $_, 100 + $_, 0, 360,
 		$color->{brown} ) for ( -4 .. 4 );
-
-	# $img->rectangle( $self->xcenter-30, $self->ycenter-10, $self->xcenter+30, $self->ycenter+10, $color->{brown} );
 	$img->stringFT(
 		$color->{brown}, font, 10, 0,
 		$self->xcenter - 26,
@@ -268,127 +408,133 @@ sub _create_image {
 		'Mind Map'
 	);
 
+	if ( not DEBUG ) {
+		my $cfg = $self->plugin->get_config_hash('blog:'.MT->instance->blog->id);
+		# version info
+		$img->stringFT(	$color->{black}, font, 10, 0, 10, $cfg->{show_blog_name}?22:11,
+			'by MovebleType Mindmap ' . $MT::Plugin::Mindmap::VERSION )
+				if $cfg->{show_version};
+
+		# blog name
+		$img->stringFT(	$color->{black}, font, 10, 0, 10, 11, MT->instance->blog->name )
+			if ( $cfg->{show_blog_name} );
+	}
+
 	if ( DEBUG ) {
-		$img->line( 10, 20, 54, 20, $color->{black} );
-		$img->stringFT(	$color->{black}, font, 10, 0, 10, 31, "あいうえお" );
 		$self->_save_image( $img, '.' );
 	} else {
-		# blog name
-		my $cfg = $self->plugin->get_config_hash('blog:'.MT->instance->blog->id);
-		if ( $cfg->{show_blog_name} ) {
-			$img->stringFT(	$color->{black}, font, 10, 0, 10, 11, MT->instance->blog->name );
-		}
-
 		$self->_save_image( $img, MT->instance->blog->site_path );
 	}
 }
 
-sub _draw_top_branch {
+sub _draw_branch {
 	my $self = shift;
 	my $img  = shift;
-	my $c    = shift;
-
-	my $ctgs = $self->ctgs;
-
-	# angle on the center circle
-	my $agl = 2 * PI() / ( $#$ctgs + 1 );
-
-	# customized rotate
-	my $rotate = 2 * PI() / 2;
-	$rotate += $agl / 2 if ( $#$ctgs % 2 );
+	my $ctgs = shift;
 
 	for my $i ( 0 .. $#$ctgs ) {
-		my $sx = sin( $agl * $i + $rotate ) * 50 + $self->xcenter;
-		my $sy = cos( $agl * $i + $rotate ) * 50 + $self->ycenter;
-		my $ex = $sx > $self->xcenter() ? $sx + 90 : $sx - 90;
-		my $ey = $sy > $self->ycenter() ? $sy + 50 : $sy - 50;
-
 		# draw branch line
-		# $i%4+1: skip color white
-		$self->_draw_branch_line( $img, $sx, $sy, $ex, $ey, $i%4+1 );
+		$self->_draw_branch_line( $img, @$ctgs[$i],
+			@$ctgs[$i]->{color} );
 
 		# draw children
-		my $children_color = [0];
-		for (1..4) {
-			push( @$children_color, $_ ) if $_ != $i%4+1;
-		}
-		$self->_draw_children( $img, $c, $children_color, @$ctgs[$i]->{children}, $ex, $ey>$self->ycenter?$ey+3:$ey-3 )
-		  if @$ctgs[$i]->{children};
+		$self->_draw_branch( $img, @$ctgs[$i]->{children} ) if @$ctgs[$i]->{children};
 
-		# draw branch label
+		# draw top branch label
 		my $text = @$ctgs[$i]->{label};
-		my $fs   = 10;
-		$img->stringFT( $c->{black}, font, $fs, 0,
-			$ex > $self->xcenter() ? $ex - ($fs+1) * length($text)/2 - 3 : $ex + 3,
-			$ey - 3, $text );
+		my $fs = 10;
+		my $sx = @$ctgs[$i]->{ex} + 3;
+		# test draw
+		my @bounds = $img->stringFT( 0, font, $fs, 0, -100, -100, $text );
+		$sx -= ($bounds[2]-$bounds[0]) if @$ctgs[$i]->{ex} > 0;
+		$img->stringFT( 5, font, $fs, 0,
+			$sx+$self->xcenter, @$ctgs[$i]->{ey}+$self->ycenter-3, $text );
+			
+		# draw entries
+		$self->_draw_entries( $img, @$ctgs[$i] ) if @$ctgs[$i]->{entries};
 	}
 }
 
-sub _draw_children {
+sub _draw_entries {
 	my $self = shift;
-	my $img  = shift;
-	my $full_color  = shift;
-	my $c    = shift;
-	my $ctgs = shift;
-	my $sx   = shift;
-	my $sy   = shift;
+	my $img = shift;
+	my $ctg = shift;
 
-	my $ey = $sy - @$ctgs[0]->{parent}->{height}/2;
-	for my $i ( 0 .. $#$ctgs ) {
-		my $ex = $sx > $self->xcenter() ? $sx + 90 : $sx - 90;
-		if ( $i ) {
-			$ey += ( @$ctgs[$i-1]->{height} + @$ctgs[$i]->{height} ) /2;
-		} else {
-			$ey += ( @$ctgs[$i]->{height} ) /2;
+	my $fs = 10;
+	my $sy = $ctg->{ey}+$self->ycenter-3;
+	for (@{ $ctg->{entries} }) {
+		my $text = $_->{title};
+		if ( length($text) > 10 ) {
+			if ( DEBUG ) {
+				$text = substr( $text, 0, 7 );
+			} else {
+				$text = MT::I18N::ja->substr_text_jcode( $text, 0, 7, 'utf-8' );
+			}
+			$text .= '...';
 		}
-		$ey = $sy - 15 if ( $#$ctgs == 0 );
 
-		# draw branch line
-		# $i%3+1: skip color white and color of parent
-		$self->_draw_branch_line( $img, $sx, $sy, $ex, $ey, @$c[$i%3+1] );
+		my $sx = $ctg->{ex} + 3;
+		$sx += $self->xcenter;
+		$sy += ENTRY_HEIGHT;
 
-		# draw children
-		my $children_color = [0];
-		for (1..4) {
-			push( @$children_color, $_ ) if $_ !=  @$c[$i%3+1];
-		}
-		$self->_draw_children( $img, $full_color, $children_color, @$ctgs[$i]->{children}, $ex, $ey )
-		  if @$ctgs[$i]->{children};
+		# test draw
+		my @bounds = $img->stringFT( 0, font, $fs, 0, -100, -100, $text );
+		$sx -= ($bounds[2]-$bounds[0]) if $ctg->{ex} > 0;
 
-		# draw branch label
-		my $text = @$ctgs[$i]->{label};
-		my $fs   = 10;
-		$img->stringFT( $full_color->{black}, font, $fs, 0,
-			$ex > $self->xcenter() ? $ex - ($fs+1) * length($text) / 2 - 3 : $ex + 3,
-			$ey - 3, $text );
+		# title
+		@bounds = $img->stringFT( BLACK, font, $fs, 0, $sx, $sy, $text );
+		$_->{coords} = "$bounds[0],$bounds[1],$bounds[4],$bounds[5]";
+		push( @{$self->entries}, $_ );
+
+		# frame
+		$img->rectangle( $sx-2, $sy+3, $bounds[2], $sy-12, BLACK );
+
+		# draw a grey background if the entry is DRAFT
+		$img->filledRectangle( $sx-2, $sy+3, $bounds[2], $sy-12, BLACK )
+			if $_->{status} == 1;
 	}
 }
 
 sub _draw_branch_line {
 	my $self = shift;
 	my $img   = shift;
-	my $sx    = shift;
-	my $sy    = shift;
-	my $ex    = shift;
-	my $ey    = shift;
+	my $ctg = shift;
 	my $color = shift;
+
+	my ($sx,$sy,$ex,$ey) = ( $ctg->{sx}+$self->xcenter, $ctg->{sy}+$self->ycenter,
+		$ctg->{ex}+$self->xcenter, $ctg->{ey}+$self->ycenter );
 
 	for my $i ( -3 .. 3 ) {
 		my $poly = new GD::Polyline;
 		$poly->addPt( $sx + $i, $sy );
-		
+
 		my $x = ($ey-$sy)/5;
 		$x = -$x if ( ($ex>$sx&&$ey<$sy) || ($ex<$sx&&$ey>$sy) );
 		$x += $sx+$i;
-		#my $y = $ey>$sy ? $ey-10 : $ey+10; 
 
-		my $y = $ey;
-		
-		$img->line( $x-2, $y, $x+2, $y, $color );
-		$img->line( $x, $y-2, $x, $y+2, $color );
-		$poly->addPt( $x, $y );
+		if ( DEBUG ) {
+			$img->line( $x-4, $ey, $x+4, $ey, 5 );
+			$img->line( $x, $ey-4, $x, $ey+4, 5 );
+		}
 
-		$poly->addPt( $ex + $i, $ey );
+		$poly->addPt( $x, $ey );
+
+ 		if ( $x > $self->xcenter ) {
+ 			if ( $x < $ex+$i ) {
+				$poly->addPt( $ex + $i, $ey );
+ 			} else {
+ 				$ctg->{ex} = $x-$self->xcenter;
+				$poly->addPt( $x+3, $ey )
+ 			}
+ 		} else {
+ 			if ( $x > $ex+$i ) {
+	 			$poly->addPt( $ex + $i, $ey );
+ 			} else {
+ 				$ctg->{ex} = $x-$self->xcenter;
+				$poly->addPt( $x-3, $ey )
+ 			}
+ 		}
+
 		$img->polyline( $poly->addControlPoints()->toSpline(), $color );
 	}
 }
@@ -444,10 +590,10 @@ sub _init_colors {
 		clr3 => $im->colorAllocate( $cfg->{color3_r}, $cfg->{color3_g}, $cfg->{color3_b} ),
 		clr4 => $im->colorAllocate( $cfg->{color4_r}, $cfg->{color4_g}, $cfg->{color4_b} ),
 
+		black => $im->colorAllocate( 0, 0, 0 ),
+
 		brown  => $im->colorAllocate( 255, 0x99, 0 ),
 		violet => $im->colorAllocate( 255, 0,    255 ),
-
-		black => $im->colorAllocate( 0, 0, 0 ),
 	};
 }
 
@@ -462,81 +608,6 @@ sub _add_breadcrumb {
 	$self->add_breadcrumb( $blog->name,
 		$self->mt_uri( mode => 'menu', args => { blog_id => $blog_id } ) );
 	$self->add_breadcrumb( $self->plugin->translate('Mindmap'), $self->uri );
-}
-
-# GD::Image demo
-sub _create_image_test {
-	my ( $self, $ctgs ) = @_;
-
-	# Create a new image
-	my $img = new GD::Image( 640, 400 );
-
-	# Allocate some colors
-	my $color = $self->_init_colors($img);
-
-	# Make the background transparent and interlaced
-	$img->transparent( $color->{white} );
-	$img->interlaced('true');
-
-	my $x1 = 10;
-	my $y1 = 10;
-	my $x2 = 200;
-	my $y2 = 200;
-
-	# Draw a border
-	$img->rectangle( 0, 0, 639, 399, $color->{black} );
-
-	# A line
-	$img->line( $x1, $y1, $x2, $y2, $color->{red} );
-
-	# A Dashed Line
-	$img->dashedLine( $x1 + 100, $y1, $x2, $y2, $color->{blue} );
-
-	# Draw a rectangle
-	$img->rectangle( $x1 + 200, $y1, $x2 + 200, $y2, $color->{green} );
-
-	# A filled rectangle
-	$img->filledRectangle( $x1 + 400, $y1, $x2 + 400, $y2, $color->{brown} );
-
-	# A circle
-	$img->arc( $x1 + 100, $y1 + 200 + 100, 50, 50, 0, 360, $color->{violet} );
-
-	# A polygon
-	# Make the polygon
-	my $poly = new GD::Polyline;
-	$poly->addPt( $x1 + 200, $y1 + 200 );
-	$poly->addPt( $x1 + 250, $y1 + 230 );
-	$poly->addPt( $x1 + 300, $y1 + 310 );
-	$poly->addPt( $x1 + 400, $y1 + 300 );
-
-	# Draw it
-	$img->polygon( $poly, $color->{yellow} );
-	my $spline = $poly->addControlPoints()->toSpline();
-	$img->polyline( $spline, $color->{red} );
-
-	# Create a Border around the image
-	$img->rectangle( 0, 0, 199, 79, $color->{black} );
-	$x1 = 2;
-	$y1 = 2;
-
-	# Draw text in small font
-	$img->string( gdSmallFont, $x1, $y1, "small font", $color->{blue} );
-	$img->string( gdMediumBoldFont, $x1, $y1 + 20, "Medium Bold Font",
-		$color->{green} );
-	$img->string( gdLargeFont, $x1, $y1 + 40, "Large font", $color->{red} );
-	$img->string( gdGiantFont, $x1, $y1 + 60, "Giant font", $color->{black} );
-
-	my $font = '/usr/share/fonts/truetype/kochi/kochi-mincho.ttf';
-	$img->stringFT( $color->{red}, $font, 10, 0, $x1, $y1 + 100,
-		@$ctgs[1]->{label} );
-	$img->stringFT( $color->{red}, $font, 10, 0, $x1, $y1 + 120,
-		@$ctgs[2]->{label} );
-
-	# Fill the area with red
-	#$img->fill( 50, 50, $color->{red} );
-
-	# /home/apache2/wwwroot/wencheng.fang.sh.cn/wwwroot/caesar/
-	$self->_save_image( $img, MT->instance->blog->site_path );
 }
 
 1;
