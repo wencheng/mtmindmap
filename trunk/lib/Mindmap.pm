@@ -10,6 +10,7 @@ use GD::Polyline;
 use constant PI => 4 * atan2( 1, 1 );
 use constant ENTRY_HEIGHT => 20;
 use constant BLACK => 5;
+use constant VOILET => 7;
 use constant DEBUG => 0;
 #use constant DEBUG => 1;
 
@@ -389,7 +390,7 @@ sub _create_image {
 	my $img   = new GD::Image( $self->xlen, $self->ylen );
 	my $color = Mindmap->_init_colors($img);
 
-	#$img->transparent( $color->{white} );
+	$img->transparent( $color->{white} );
 	$img->interlaced('true');
 
 	# border
@@ -473,25 +474,24 @@ sub _draw_entries {
 			$text .= '...';
 		}
 
-		my $sx = $ctg->{ex} + 3;
-		$sx += $self->xcenter;
+		my $sx = $ctg->{ex} + 3 + $self->xcenter;
 		$sy += ENTRY_HEIGHT;
 
 		# test draw
-		my @bounds = $img->stringFT( 0, font, $fs, 0, -100, -100, $text );
-		$sx -= ($bounds[2]-$bounds[0]) if $ctg->{ex} > 0;
+		my @bounds = GD::Image->stringFT( 0, font, $fs, 0, 0, 0, $text );
+		$sx -= $bounds[2] if $ctg->{ex} > 0;
+
+		# draw a grey background if the entry is DRAFT
+		$img->filledRectangle( $sx-2, $sy-12, $sx+$bounds[2]+2, $sy+3, VOILET )
+			if $_->{status}==1;
 
 		# title
-		@bounds = $img->stringFT( BLACK, font, $fs, 0, $sx, $sy, $text );
+		@bounds = $img->stringFT( $_->{status}==1?0:BLACK, font, $fs, 0, $sx, $sy, $text );
 		$_->{coords} = "$bounds[0],$bounds[1],$bounds[4],$bounds[5]";
 		push( @{$self->entries}, $_ );
 
 		# frame
-		$img->rectangle( $sx-2, $sy+3, $bounds[2], $sy-12, BLACK );
-
-		# draw a grey background if the entry is DRAFT
-		$img->filledRectangle( $sx-2, $sy+3, $bounds[2], $sy-12, BLACK )
-			if $_->{status} == 1;
+		$img->rectangle( $sx-2, $sy-12, $bounds[2]+2, $sy+3, BLACK );
 	}
 }
 
