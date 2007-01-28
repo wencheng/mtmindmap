@@ -2,7 +2,8 @@
 <h2><MT_TRANS phrase="The Movable Type Plugin Mindmap"> <MT_TRANS phrase="version"> <TMPL_VAR NAME=VERSION></h2>
 	<div class="message"><TMPL_VAR NAME=BLOG_NAME> </div>
 
-	<img src="/ctg_mindmap.png"/>
+	<img src="/ctg_mindmap.png" usemap="#entrymap" />
+
 	<p>
 	<input value=" <MT_TRANS phrase="Rebuild"> " type="button"
 		onclick="window.location = '<TMPL_VAR NAME=SCRIPT_URL>;__mode=rebuild'"/>
@@ -10,6 +11,12 @@
 	<input value="&laquo; <MT_TRANS phrase="Return">" onclick="window.location = '<TMPL_VAR NAME=MT_URL>?__mode=list_plugins'" type="button" />
 	</p>
 
-	<TMPL_VAR NAME=ctgs_dump>
+	<map id="entrymap" name="entrymap">
+	<TMPL_LOOP NAME=entries>
+		<area shape="rect" coords="<TMPL_VAR coords>"
+			href="<TMPL_VAR NAME=permalink>" target ="_blank"
+			alt="<TMPL_VAR NAME=title>"/>
+	</TMPL_LOOP>
+	</map>
 
 <TMPL_INCLUDE NAME="footer.tmpl">

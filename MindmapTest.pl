@@ -7,14 +7,30 @@ use Data::Dumper;
 # local unit test for Mindmap.pm
 
 my $ctgs = [
-	{ id => 8, label =>'Header', level => 1 },
+	{ id => 8, label =>'Header' },
 	{ id => 15, label => '読書感想', children => [
-		{ id => 12, label => 'ローマ人の物語' }
+		{ id => 12, label => 'ローマ人の物語',
+		  entries => [
+		  	{ title => '第一卷' },
+		  	{ title => '第二卷' }
+		  ]
+		}
 	] },
 	{ id => 14, label => '言語', children => [
 		{ id => 11, label => 'zh-cn', children => [
 			{ id => 10, label => '簡体', children => [
-				{ id => 20, label => '1' },
+				{ id => 20, label => '1', entries => [
+					{ title => '.@/' },
+					{ title => 'abc' },
+					{ title => 'def' },
+					{ title => 'ghi' },
+					{ title => 'jkl' },
+					{ title => 'mno' },
+					{ title => 'pqrs' },
+					{ title => 'tuv' },
+					{ title => 'wxyz' },
+					{ title => '...' },
+				] },
 				{ id => 20, label => '2' },
 				{ id => 20, label => '3' },
 				{ id => 20, label => '4' },
@@ -26,13 +42,20 @@ my $ctgs = [
 				{ id => 20, label => '10' },
 				{ id => 20, label => '11' },
 			] },
-			{ id => 10, label => '繁体' },
+			{ id => 10, label => '繁体',	},
 		] },
 		{ id => 13, label => 'en' },
-		{ id => 9,  label => 'ja'},
+		{ id => 9,  label => 'ja',
+		  entries => [
+		  	{ title => 'あいうえお' },
+		  	{ title => 'かきくけこ' },
+		  	{ title => 'さしすせそたちつてと' },
+		  	{ title => 'なにぬねのはひふへほ' },
+		]
+		},
 		{ id => 9,  label => 'es' },
 	] },
-	{ id => 16, label => 'Long English' },
+	{ id => 16, label => 'Long English', },
 ];
 	
 #test_get_categories();
@@ -42,7 +65,6 @@ test_create_image();
 sub test_create_image {
 	my $m = new Mindmap();
 	$m->ctgs( $ctgs );
-	$m->maxlvl( 4 );
 	$m->_create_image();
 }
 
