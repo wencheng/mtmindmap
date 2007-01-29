@@ -35,12 +35,7 @@ sub init {
 	return $self;
 }
 
-# passthru for L10N
-sub translate_templatized {
-    my $app = shift;
-    $app->plugin->translate_templatized(@_);
-}
-
+# FOR LOCAL TEST ONLY
 sub new {
 	if ( DEBUG ) {
 		my $class = shift;
@@ -58,6 +53,86 @@ sub new {
 	} else {
 		shift->SUPER::new(@_) or return;
 	}
+}
+
+sub plugin {
+	MT::Plugin::Mindmap->instance;
+}
+
+sub view {
+	my $self = shift;
+
+	$self->build() if ( not -e static_filepath );
+
+	my $spath = MT->instance->blog->site_url;
+    $spath =~ s/\/*$//g;
+
+	$self->redirect( "${spath}/mindmap.html" );
+}
+
+sub rebuild {
+	my $self = shift;
+	$self->build();
+	$self->view();
+}
+
+sub build {
+	my $self = shift;
+
+	# fetch categories
+	$self->_load_categories();
+
+	# fetch entries
+	my $cfg = $self->plugin->get_config_hash('blog:'.MT->instance->blog->id);
+	$self->_load_entries() if $cfg->{show_entry};
+
+	# generate mindmap image
+	$self->_create_image();
+
+    # save static html
+    $self->_save();
+}
+
+sub _save {
+	my $self = shift;
+	
+    my $tmpl = $self->load_tmpl( 'view.tmpl' );
+    # Template path is not approperiate when callback excuting
+    # Anyone has a better idea?
+    $tmpl = $self->load_tmpl( $self->app_dir.'/plugins/Mindmap/tmpl/view.tmpl' ) if (!$tmpl);
+    return $self->error( $self->plugin->translate("Loading template 'view.tmpl' failed: [_2]",
+    	$@) ) if (!$tmpl);
+
+	# params
+	my $blog = MT->instance->blog;
+	$tmpl->param( version => $MT::Plugin::Mindmap::VERSION );
+	$tmpl->param( blog_name => $blog->name );
+	$tmpl->param( blog_id => $blog->id );
+	$tmpl->param( site_url => $blog->site_url );
+	$tmpl->param( entries => $self->entries );
+
+	# Set breadcrumb
+	$self->_add_breadcrumb();
+
+	# Write file
+    my $spath = $blog->site_path;
+    $spath =~ s/\/*$/\//g;
+    open F, "> ".static_filepath()
+        or $self->error( $self->plugin->translate("Write '[_1]' failed",static_filepath()) );
+	print F $self->translate_templatized($tmpl->output);
+    close F;
+}
+
+# passthru for L10N
+sub translate_templatized {
+    my $app = shift;
+    $app->plugin->translate_templatized(@_);
+}
+
+sub static_filepath {
+	my $spath = MT->instance->blog->site_path;
+    $spath =~ s/\/*$/\//g;
+	"${spath}mindmap.html";
 }
 
 sub font {
@@ -80,50 +155,6 @@ sub xlen { &_getset }
 sub ylen { &_getset }
 sub xcenter { &_getset }
 sub ycenter { &_getset }
-
-sub plugin {
-	MT::Plugin::Mindmap->instance;
-}
-
-sub view {
-	my $self   = shift;
-	
-	my $blog   = MT->instance->blog;
-	my $config = MT::Plugin::Mindmap->instance->get_config_hash('blog:'.$blog->id);
-
-	my $param  = {};
-	$param->{version} = $MT::Plugin::Mindmap::VERSION;
-	$param->{blog_name} = $blog->name;
-	$param->{entries} = $self->entries;
-
-	# rebuild everytime
-	$self->build;
-
-	# Set breadcrumb
-	$self->_add_breadcrumb();
-
-	$self->build_page( 'view.tmpl', $param );
-}
-
-sub rebuild {
-	my $self = shift;
-	#$self->build();
-	$self->view();
-}
-
-sub build {
-	my $self = shift;
-
-	# fetch categories
-	$self->_load_categories();
-	
-	# fetch entries
-	my $cfg = $self->plugin->get_config_hash('blog:'.MT->instance->blog->id);
-	$self->_load_entries() if $cfg->{show_entry};
-
-	# generate mindmap image
-	$self->_create_image();
-}
 
 # fetch all entries of the category specified
 sub _load_entries {
@@ -221,6 +252,7 @@ sub _preload {
 	my $self = shift;
 
 	my $ctgs = $self->ctgs;
+	return if $#$ctgs < 0;
 
 	# angle on the center circle
 	my $agl = 2 * PI() / ( $#$ctgs + 1 );
@@ -323,8 +355,8 @@ sub _preload_children {
 
 		# not use the same color with sibling's last child
 		my $sib_child = @{ $parent->{children} }[$i-1]->{children};
-		shift(@color) if $i && $sib_child && $color[$i%3] == @$sib_child[$#$sib_child]->{color};
-		
+		push(@color,shift(@color)) if $i && $sib_child && $color[$i%3] == @$sib_child[$#$sib_child]->{color};
+
 		@$ctgs[$i]->{color} = $color[$i%3];
 
 		# preload children
@@ -487,11 +519,13 @@ sub _draw_entries {
 
 		# title
 		@bounds = $img->stringFT( $_->{status}==1?0:BLACK, font, $fs, 0, $sx, $sy, $text );
-		$_->{coords} = "$bounds[0],$bounds[1],$bounds[4],$bounds[5]";
-		push( @{$self->entries}, $_ );
 
 		# frame
 		$img->rectangle( $sx-2, $sy-12, $bounds[2]+2, $sy+3, BLACK );
+		
+		# save coords
+		$_->{coords} = sprintf( "%d,%d,%d,%d", $sx-2, $sy-12, $bounds[2]+2, $sy+3 );
+		push( @{$self->entries}, $_ );
 	}
 }
 

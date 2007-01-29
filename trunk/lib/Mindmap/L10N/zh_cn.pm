@@ -25,7 +25,7 @@ use vars qw( %Lexicon );
     'Rebuild' => '重建',
     'Return' => '返回',
     'Config the 4 color used in the mindmap.' => '设定心智图中所使用的4种颜色。',
+    'See mindmap' => '显示心智图',
 );
-
 
 1;

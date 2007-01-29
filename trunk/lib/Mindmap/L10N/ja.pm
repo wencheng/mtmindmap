@@ -25,6 +25,7 @@ use vars qw( %Lexicon );
     'Rebuild' => '再構築',
     'Return' => '戻る',
     'Config the 4 color used in the mindmap.' => 'マインドマップに使われる４色を設定する。',
+    'See mindmap' => 'マインドマップを表示',
 );
 
 1;
