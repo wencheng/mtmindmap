@@ -12,7 +12,7 @@ my $plugin = new MT::Plugin::Mindmap(
 		name        => "Mindmap Diagram",
 		description =>
 		  "<MT_TRANS phrase=\"The Plugin to display category as a mindmap\">",
-		doc_link    => "http://wencheng.fang.sh.cn/archives/plugins/helloworld",
+		doc_link    => "http://wencheng.fang.sh.cn/2007/01/16/182107.shtml",
 		plugin_link => "http://code.google.com/p/mtmindmap/",
 		author_name => "Wencheng Fang",
 		author_link => "http://wencheng.fang.sh.cn/",
@@ -41,9 +41,9 @@ my $plugin = new MT::Plugin::Mindmap(
 	}
 );
 MT->add_plugin($plugin);
-MT->add_plugin_action( 'blog',         'mindmap.cgi', 'See mindmap' );
-MT->add_plugin_action( 'entry',        'mindmap.cgi', 'See mindmap' );
-MT->add_plugin_action( 'list_entries', 'mindmap.cgi', 'See mindmap' );
+MT->add_plugin_action( 'blog',         'mindmap.cgi', '<MT_TRANS phrase="See mindmap">' );
+MT->add_plugin_action( 'entry',        'mindmap.cgi', '<MT_TRANS phrase="See mindmap">' );
+MT->add_plugin_action( 'list_entries', 'mindmap.cgi', '<MT_TRANS phrase="See mindmap">' );
 
 MT::Category->add_callback( 'post_save', 11, $plugin, \&cat_post_save_cb );
 MT::Entry->add_callback( 'post_save', 11, $plugin, \&entry_post_save_cb );
@@ -55,10 +55,6 @@ sub configuration_template {
 
 	my $app     = MT->instance;
 	my $blog_id = $app->{'blog_id'};
-
-	my $text = $param->{text};
-
-	$param->{template_count} = 2;
 
 	my $tmpl = <<TMPL;
 	<div class="setting">
@@ -121,29 +117,30 @@ TMPL
 sub save_config {
     my $plugin = shift;
     my ($param, $scope) = @_;
-    #my $themeroot = $param->{themeroot};
 
     my $app = MT->instance;
 
     return $plugin->SUPER::save_config(@_);
 }
 
-sub _rebuild_image {
+sub _rebuild {
 	my ($cb, $obj) = @_;
 	my $plugin = $cb->{plugin};
 
-	return unless $plugin->enabled($obj->blog_id);
-
-	my $m = new Mindmap();
-	$m->build;
+	eval {
+		my $m = Mindmap->new;
+		$m->init;
+		$m->build;
+	};
+	print STDERR $@ if $@;
 }
 
 sub cat_post_save_cb {
-	_rebuild_image(@_);
+	_rebuild(@_);
 }
 
 sub entry_post_save_cb {
-	_rebuild_image(@_);
+	_rebuild(@_);
 }
 
 1;
