@@ -1,0 +1,19 @@
+<h2><MT_TRANS phrase="The Movable Type Plugin Mindmap"> <MT_TRANS phrase="version"> <TMPL_VAR NAME=VERSION></h2>
+	<div class="message"><TMPL_VAR NAME=BLOG_NAME> </div>
+
+	<img src="<TMPL_VAR NAME=SITE_URL>/ctg_mindmap.png" usemap="#entrymap" />
+
+	<p>
+		<input value=" <MT_TRANS phrase="Rebuild"> " type="button"
+			onclick="window.location='<TMPL_VAR NAME=SCRIPT_URL>?__mode=rebuild&amp;blog_id=<TMPL_VAR NAME=BLOG_ID>'"/>
+	</p>
+
+	<map id="entrymap" name="entrymap">
+	<TMPL_LOOP NAME=entries>
+		<area shape="rect" coords="<TMPL_VAR coords>"
+			href="<TMPL_VAR NAME=permalink>" target ="_blank"
+			alt="<TMPL_VAR NAME=title>"/>
+	</TMPL_LOOP>
+	</map>
+
+<TMPL_INCLUDE NAME="footer.tmpl">
