@@ -1,4 +1,4 @@
-#A quick tutorial
+#a quick tutorial
 
 = Installation =
   * Download the latest release of MTMindmap
