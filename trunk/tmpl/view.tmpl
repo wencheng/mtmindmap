@@ -3,25 +3,20 @@
 
 	<img src="<TMPL_VAR NAME=SITE_URL>/ctg_mindmap.png" usemap="#entrymap" />
 
-	<p>
-		<input value=" <MT_TRANS phrase="Rebuild"> " type="button"
-			onclick="window.location='<TMPL_VAR NAME=MT_URL>?__mode=rebuild&amp;blog_id=<TMPL_VAR NAME=BLOG_ID>'"/>
-	</p>
-	
 	<style type="text/css">
 	.p-shadow {
 	  clear: both;
 	  width: 90%;
 	  float:left;
-	  background: url(/mt-static/images/mtmindmap/shadowAlpha.png) no-repeat bottom right !important;
-	  background: url(/mt-static/images/mtmindmap/shadow.gif) no-repeat bottom right;
+	  background: url(<TMPL_VAR name=STATIC_URI>images/mtmindmap/shadowAlpha.png) no-repeat bottom right !important;
+	  background: url(<TMPL_VAR name=STATIC_URI>images/mtmindmap/shadow.gif) no-repeat bottom right;
 	  margin: 10px 0 0 10px !important;
 	  margin: 10px 0 0 5px;
 	}
 	
 	.p-shadow div {
 	  background: none !important;
-	  background: url(/mt-static/images/mtmindmap/shadow2.gif) no-repeat left top;
+	  background: url(<TMPL_VAR name=STATIC_URI>images/mtmindmap/shadow2.gif) no-repeat left top;
 	  padding: 0 !important;
 	  padding: 0 6px 6px 0;
 	}
