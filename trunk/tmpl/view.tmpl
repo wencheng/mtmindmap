@@ -5,14 +5,82 @@
 
 	<p>
 		<input value=" <MT_TRANS phrase="Rebuild"> " type="button"
-			onclick="window.location='<TMPL_VAR NAME=SCRIPT_URL>?__mode=rebuild&amp;blog_id=<TMPL_VAR NAME=BLOG_ID>'"/>
+			onclick="window.location='<TMPL_VAR NAME=MT_URL>?__mode=rebuild&amp;blog_id=<TMPL_VAR NAME=BLOG_ID>'"/>
 	</p>
+	
+	<style type="text/css">
+	.p-shadow {
+	  clear: both;
+	  width: 90%;
+	  float:left;
+	  background: url(/mt-static/images/mtmindmap/shadowAlpha.png) no-repeat bottom right !important;
+	  background: url(/mt-static/images/mtmindmap/shadow.gif) no-repeat bottom right;
+	  margin: 10px 0 0 10px !important;
+	  margin: 10px 0 0 5px;
+	}
+	
+	.p-shadow div {
+	  background: none !important;
+	  background: url(/mt-static/images/mtmindmap/shadow2.gif) no-repeat left top;
+	  padding: 0 !important;
+	  padding: 0 6px 6px 0;
+	}
+	
+	.p-shadow p {
+	  color: #777;
+	  background-color: #fff;
+	  font: italic 1em georgia, serif;
+	  border: 1px solid #a9a9a9;
+	  padding: 4px;
+	  margin: -6px 6px 6px -6px !important;
+	  margin: 0;
+	}
+	</style>
+	<div id="edit_window" class="p-shadow" onmouseover="stopTimer()" onmouseout="startTimer()"
+	style="
+	width:42;
+	height:21;
+	position:absolute;
+	z-index:2;
+	visibility:hidden;
+	"><div><p><a id="edit_anchor" target="_blank" href="">Edit</a></p></div></div>
+	<script><!--
+	var win = document.getElementById("edit_window");
+	var editAnchor = document.getElementById("edit_anchor");
+	
+	var timerID = 0;
 
+	function stopTimer() {
+		clearTimeout(timerID);
+		timerID = 0;
+	}
+	function startTimer() {
+		timerID  = setTimeout("hideLinks()", 1000);
+	}
+	function showLinks(id) {
+		editAnchor.href = '<TMPL_VAR name=MT_URL>?__mode=view&_type=entry&id='+id+'&blog_id=<TMPL_VAR name=blog_id>';
+		win.style.left = (event.x+20) + "px";
+		win.style.top = (event.y-50) + "px";
+		win.style.visibility = "visible";
+	}
+	function moveLinks() {
+		if ( win.style.visibility == "visible" ) {
+			win.style.left = (event.x+20) + "px";
+			win.style.top = (event.y-50) + "px";
+		}
+	}
+	function hideLinks() {
+		win.style.visibility = "hidden";
+	}
+	--></script>
+	
 	<map id="entrymap" name="entrymap">
 	<TMPL_LOOP NAME=entries>
 		<area shape="rect" coords="<TMPL_VAR coords>"
 			href="<TMPL_VAR NAME=permalink>" target ="_blank"
-			alt="<TMPL_VAR NAME=title>"/>
+			onmouseover="showLinks('<TMPL_VAR NAME=id>');"
+			onmousemove="moveLinks();" onmouseout="startTimer();"
+			title="<TMPL_VAR NAME=title>" alt="<TMPL_VAR NAME=title>"/>
 	</TMPL_LOOP>
 	</map>
 
