@@ -5,7 +5,7 @@ use MT;
 use MT::Template::Context;
 use Mindmap;
 use vars qw($VERSION);
-$VERSION = '0.1';
+$VERSION = '0.3';
 
 my $plugin = new MT::Plugin::Mindmap(
 	{
